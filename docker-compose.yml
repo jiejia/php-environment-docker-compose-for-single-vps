@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库服务
+  mysql:
+    image: mysql:8.4.7
+    container_name: mysql-podcast
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-your_strong_root_password}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - podcast-network
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # CN Podcast PHP-FPM
+  php-cn-podcast:
+    build: ./php/php-cn-podcast
+    container_name: php-cn-podcast
+    restart: always
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./sites/cn.podcast.aripplesong.me/public:/var/www/html
+    networks:
+      - podcast-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # DOC Podcast PHP-FPM
+  php-doc-podcast:
+    build: ./php/php-doc-podcast
+    container_name: php-doc-podcast
+    restart: always
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./sites/doc.podcast.aripplesong.me/public:/var/www/html
+    networks:
+      - podcast-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Podcast 主站 PHP-FPM
+  php-podcast:
+    build: ./php/php-podcast
+    container_name: php-podcast
+    restart: always
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./sites/podcast.aripplesong.me/public:/var/www/html
+    networks:
+      - podcast-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Nginx Web 服务器
+  nginx:
+    image: nginx:1.28.0
+    container_name: nginx-podcast
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./sites/cn.podcast.aripplesong.me/public:/var/www/cn.podcast.aripplesong.me
+      - ./sites/doc.podcast.aripplesong.me/public:/var/www/doc.podcast.aripplesong.me
+      - ./sites/podcast.aripplesong.me/public:/var/www/podcast.aripplesong.me
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - podcast-network
+    depends_on:
+      - php-cn-podcast
+      - php-doc-podcast
+      - php-podcast
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+
+  # Certbot SSL 证书管理
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot-podcast
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - podcast-network
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+networks:
+  podcast-network:
+    driver: bridge
+
