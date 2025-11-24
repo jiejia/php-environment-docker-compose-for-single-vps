@@ -3,6 +3,8 @@ services:
   mysql:
     image: mysql:8.4.7
     restart: always
+    ports:
+      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       TZ: ${TZ:-Asia/Shanghai}
@@ -41,10 +43,7 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./sites/cn.podcast.aripplesong.me/public:/var/www/cn.podcast.aripplesong.me
-      - ./sites/doc.podcast.aripplesong.me/public:/var/www/doc.podcast.aripplesong.me
-      - ./sites/podcast.aripplesong.me/public:/var/www/podcast.aripplesong.me
-      - ./sites/aripplesong.me/public:/var/www/aripplesong.me
+      - ./sites:/var/www/
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/logs:/var/log/nginx
       - ./certbot/conf:/etc/letsencrypt
@@ -69,67 +68,21 @@ services:
       - certbot
     depends_on:
       - nginx
-    command: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    # command: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
   # main site PHP-FPM
-  php:
+  php-8.4.15:
     image: php:8.4.15-fpm-alpine3.21
     restart: always
     environment:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      - ./sites/aripplesong.me/public:/var/www/aripplesong.me
-      - ./sites/aripplesong.me/php.ini:/usr/local/etc/php/php.ini
+      - ./sites:/var/www
+      - ./php/8.4.15/php.ini:/usr/local/etc/php/php.ini
     networks:
       - app-network
     depends_on:
-      mysql:
-        condition: service_healthy
-
-  # CN Podcast PHP-FPM
-  php-podcast:
-    image: php:8.4.15-fpm-alpine3.21
-    restart: always
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ./sites/podcast.aripplesong.me/public:/var/www/podcast.aripplesong.me
-      - ./sites/podcast.aripplesong.me/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - app-network
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  # CN Podcast PHP-FPM
-  php-cn-podcast:
-    image: php:8.4.15-fpm-alpine3.21
-    restart: always
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ./sites/cn.podcast.aripplesong.me/public:/var/www/cn.podcast.aripplesong.me
-      - ./sites/cn.podcast.aripplesong.me/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - app-network
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  # doc Podcast PHP-FPM
-  php-doc-podcast:
-    image: php:${PHP_IMAGE_VERSION}
-    restart: always
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ./sites/doc.podcast.aripplesong.me/public:/var/www/doc.podcast.aripplesong.me
-      - ./sites/doc.podcast.aripplesong.me/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - app-network
-    depends_on:
-      mysql:
-        condition: service_healthy
+      - mysql
 
 networks:
   app-network:

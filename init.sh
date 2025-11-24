@@ -1,95 +1,97 @@
 #!/bin/bash
 
+nginx_version=1.28.0
+mysql_version=8.4.7
+php_version=8.4.15-fpm-alpine3.21
+certbot_version=latest
+mysql_root_password=123456
+tz=Asia/Shanghai
+certbot_email=jiejia2009@gmail.com
+
+domains=(
+    "aripplesong.me"
+    "podcast.aripplesong.me"
+    "doc.podcast.aripplesong.me"
+    "cn.podcast.aripplesong.me"
+)
+
 # create .env file
-cat <<'EOF' > .env
-MYSQL_ROOT_PASSWORD=123456
+cat <<EOF > .env
+MYSQL_ROOT_PASSWORD=${mysql_root_password}
 
-TZ=Asia/Shanghai
+TZ=${tz}
 
-CERTBOT_EMAIL=jiejia2009@gmail.com
+CERTBOT_EMAIL=${certbot_email}
 EOF
 
 # certbot apply script
-cat <<'EOF' > certbot_apply.sh
-# 获取脚本所在目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cat <<EOF > certbot_apply.sh
+docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d aripplesong.me -d www.aripplesong.me --email ${certbot_email} --agree-tos --non-interactive
 
-# 加载 .env 文件
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
-fi
+docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d podcast.aripplesong.me --email ${certbot_email} --agree-tos --non-interactive
 
-docker-compose up -d nginx
+docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d doc.podcast.aripplesong.me --email ${certbot_email} --agree-tos --non-interactive
 
-docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d aripplesong.me -d www.aripplesong.me --email ${CERTBOT_EMAIL} --agree-tos --non-interactive
-
-docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d podcast.aripplesong.me --email ${CERTBOT_EMAIL} --agree-tos --non-interactive
-
-docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d doc.podcast.aripplesong.me --email ${CERTBOT_EMAIL} --agree-tos --non-interactive
-
-docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d cn.podcast.aripplesong.me --email ${CERTBOT_EMAIL} --agree-tos --non-interactive
-
-docker-compose down
+docker-compose run --rm certbot certonly --webroot -w /var/www/certbot -d cn.podcast.aripplesong.me --email ${certbot_email} --agree-tos --non-interactive
 EOF
 
+chmod +x certbot_apply.sh
+
 # certbot renew script
-cat <<'EOF' > certbot_renew.sh
+cat <<EOF > certbot_renew.sh
 docker-compose run --rm certbot renew
 
 docker-compose exec nginx nginx -s reload
 EOF
 
-# create docker-compose.yml file
-cat <<'EOF' > docker-compose.yml
-services:
+chmod +x certbot_renew.sh
 
+# create docker-compose.yml file
+cat <<EOF > docker-compose.yml
+services:
   # MySQL 数据库服务
   mysql:
-    image: mysql:8.4.7
+    image: mysql:${mysql_version}
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      TZ: ${TZ:-Asia/Shanghai}
+      MYSQL_ROOT_PASSWORD: ${mysql_root_password}
+      TZ: ${tz}
     volumes:
       - ./mysql/my.cnf:/etc/my.cnf
       - ./mysql/data:/var/lib/mysql
       - ./mysql/conf:/etc/mysql/conf.d
       - ./mysql/logs:/var/log/mysql
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
-
     networks:
       - app-network
     command: --default-authentication-plugin=mysql_native_password
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "localhost",
-          "-uroot",
-          "-p${MYSQL_ROOT_PASSWORD}",
-          "--silent",
-        ]
-      timeout: 20s
-      retries: 10
+    # healthcheck:
+    #   test:
+    #     [
+    #       "CMD",
+    #       "mysqladmin",
+    #       "ping",
+    #       "-h",
+    #       "localhost",
+    #       "-uroot",
+    #       "-p${mysql_root_password}",
+    #       "--silent",
+    #     ]
+    #   timeout: 20s
+    #   retries: 10
 
   # Nginx Web 服务器
   nginx:
-    image: nginx:1.28.0
+    image: nginx:${nginx_version}
     restart: always
     ports:
       - "80:80"
       - "443:443"
     environment:
-      TZ: ${TZ:-Asia/Shanghai}
+      TZ: ${tz}
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./sites/cn.podcast.aripplesong.me/public:/var/www/cn.podcast.aripplesong.me
-      - ./sites/doc.podcast.aripplesong.me/public:/var/www/doc.podcast.aripplesong.me
-      - ./sites/podcast.aripplesong.me/public:/var/www/podcast.aripplesong.me
-      - ./sites/aripplesong.me/public:/var/www/aripplesong.me$
+      - ./sites:/var/www/
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/logs:/var/log/nginx
       - ./certbot/conf:/etc/letsencrypt
@@ -97,89 +99,40 @@ services:
     networks:
       - app-network
     depends_on:
-      - php-cn-podcast
-      - php-doc-podcast
-      - php-podcast
-    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"     
+      - php-${php_version}
+    # command: '/bin/sh -c ''while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'''
 
-   # Certbot SSL 证书管理
+    # Certbot SSL 证书管理
   certbot:
-    image: certbot/certbot:latest
+    image: certbot/certbot:${certbot_version}
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
     networks:
-      - app-network   
+      - app-network
     profiles:
       - certbot
     depends_on:
       - nginx
-    command: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    # command: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
   # main site PHP-FPM
-  php:
-    image: php:8.4.15-fpm-alpine3.21
+  php-${php_version}:
+    image: php:${php_version}
     restart: always
     environment:
-      TZ: ${TZ:-Asia/Shanghai}
+      TZ: ${tz}
     volumes:
-      - ./sites/aripplesong.me/public:/var/www/aripplesong.me
-      - ./sites/aripplesong.me/php.ini:/usr/local/etc/php/php.ini
+      - ./sites:/var/www
+      - ./php/${php_version}/php.ini:/usr/local/etc/php/php.ini
     networks:
       - app-network
     depends_on:
-      mysql:
-        condition: service_healthy     
-
-  # CN Podcast PHP-FPM
-  php-podcast:
-    image: php:8.4.15-fpm-alpine3.21
-    restart: always
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ./sites/podcast.aripplesong.me/public:/var/www/podcast.aripplesong.me
-      - ./sites/podcast.aripplesong.me/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - app-network
-    depends_on:
-      mysql:
-        condition: service_healthy     
-
-  # CN Podcast PHP-FPM
-  php-cn-podcast:
-    image: php:8.4.15-fpm-alpine3.21
-    restart: always
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ./sites/cn.podcast.aripplesong.me/public:/var/www/cn.podcast.aripplesong.me
-      - ./sites/cn.podcast.aripplesong.me/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - app-network
-    depends_on:
-      mysql:
-        condition: service_healthy     
-
-  # doc Podcast PHP-FPM
-  php-doc-podcast:
-    image: php:8.4.15-fpm-alpine3.21
-    restart: always
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ./sites/doc.podcast.aripplesong.me/public:/var/www/doc.podcast.aripplesong.me
-      - ./sites/doc.podcast.aripplesong.me/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - app-network
-    depends_on:
-      mysql:
-        condition: service_healthy
+      - mysql
 
 networks:
   app-network:
     driver: bridge
-
 EOF
 
 
@@ -189,7 +142,7 @@ mkdir ./mysql/data
 mkdir ./mysql/conf
 mkdir ./mysql/logs
 
-cat <<'EOF' > ./mysql/init.sql
+cat <<EOF > ./mysql/init.sql
 CREATE DATABASE IF NOT EXISTS aripplesong;
 CREATE USER 'aripplesong'@'%' IDENTIFIED BY '123456';
 GRANT ALL PRIVILEGES ON aripplesong.* TO 'aripplesong'@'%';
@@ -205,30 +158,89 @@ GRANT ALL PRIVILEGES ON cn_podcast_aripplesong.* TO 'cn_podcast_aripplesong'@'%'
 FLUSH PRIVILEGES;
 EOF
 
-docker-compose run --rm  mysql cat /etc/my.cnf > ./mysql/my.cnf
+docker run --rm --entrypoint=cat  mysql:${mysql_version} /etc/my.cnf > ./mysql/my.cnf
 
 # nginx init script
 mkdir ./nginx
 mkdir ./nginx/conf.d
 mkdir ./nginx/logs
-mkdir -p ./sites/cn.podcast.aripplesong.me/public    
-mkdir -p ./sites/doc.podcast.aripplesong.me/public
-mkdir -p ./sites/podcast.aripplesong.me/public
-mkdir -p ./sites/aripplesong.me/public
-
-docker-compose run --rm nginx cat /etc/nginx/nginx.conf > ./nginx/nginx.conf
+docker run --rm --entrypoint=cat nginx:${nginx_version} /etc/nginx/nginx.conf > ./nginx/nginx.conf
 
 
 # php init script
-docker-compose run --rm php-cn-podcast cat /usr/local/etc/php/php.ini-production > ./sites/cn.podcast.aripplesong.me/php.ini
-docker-compose run --rm php-doc-podcast cat /usr/local/etc/php/php.ini-production > ./sites/doc.podcast.aripplesong.me/php.ini
-docker-compose run --rm php-podcast cat /usr/local/etc/php/php.ini-production > ./sites/podcast.aripplesong.me/php.ini
-docker-compose run --rm php cat /usr/local/etc/php/php.ini-production > ./sites/aripplesong.me/php.ini
-
+mkdir -p ./php/${php_version}/
+docker run --rm --entrypoint=cat php:${php_version} /usr/local/etc/php/php.ini-production > ./php/${php_version}/php.ini
 
 # certbot init script
 mkdir -p ./certbot/conf
 mkdir -p ./certbot/www
 
 
+# create sites init script
+mkdir ./sites/
 
+for domain in "${domains[@]}"; do
+    mkdir ./sites/$domain
+cat <<EOF > ./nginx/conf.d/$domain.conf
+# nginx/conf.d/$domain.conf
+
+server {
+    listen 80;
+    server_name $domain;
+    
+    # Certbot ACME 挑战目录
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    
+    # 其他请求重定向到 HTTPS
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name $domain;
+    
+    root /var/www/$domain;
+    index index.php index.html index.htm;
+    
+    # SSL 证书配置
+    ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
+    
+    # SSL 安全配置
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    
+    location ~ \.php$ {
+        fastcgi_pass php-${php_version}:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    
+    location ~ /\.ht {
+        deny all;
+    }
+}
+EOF
+done
+
+# generate temporary ssl certificate
+for domain in "${domains[@]}"; do
+mkdir -p ./certbot/conf/live/$domain
+openssl req -x509 -nodes -days 3650 \
+  -subj "/CN=$domain" \
+  -newkey rsa:2048 \
+  -keyout ./certbot/conf/live/$domain/privkey.pem \
+  -out ./certbot/conf/live/$domain/fullchain.pem
+chmod 600 ./certbot/conf/live/$domain/privkey.pem
+done
