@@ -51,9 +51,7 @@ services:
     networks:
       - app-network
     depends_on:
-      - php-cn-podcast
-      - php-doc-podcast
-      - php-podcast
+      - php-${php_version}
     command: '/bin/sh -c ''while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'''
 
     # Certbot SSL 证书管理
