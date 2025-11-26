@@ -2,7 +2,7 @@
 
 nginx_version=1.28.0
 mysql_version=8.4.7
-php_version=8.4.15-fpm-alpine3.21
+php_version=8.5-fpm-alpine
 mysql_root_password=123456
 tz=Asia/Shanghai
 certbot_email=jiejia2009@gmail.com
@@ -29,6 +29,8 @@ services:
   mysql:
     image: mysql:${mysql_version}
     restart: always
+    ports:
+      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${mysql_root_password}
       TZ: ${tz}
@@ -80,10 +82,20 @@ services:
 
   # main site PHP-FPM
   php-${php_version}:
-    image: php:${php_version}
+    build:
+      context: .
+      dockerfile: Dockerfile.php
     restart: always
     environment:
-      TZ: ${tz}
+      PHP_OPCACHE_ENABLE: "1"
+      PHP_MEMORY_LIMIT: "512M"
+      AUTORUN_ENABLED: "false"
+      PHP_FPM_PM_CONTROL: "ondemand"
+      PHP_FPM_PM_MAX_CHILDREN: "10"
+      PHP_FPM_PM_PROCESS_IDLE_TIMEOUT: "10s"
+      PHP_UPLOAD_MAX_FILE_SIZE: "256M"
+      PHP_POST_MAX_SIZE: "256M"
+    user: "1000:1000"  
     volumes:
       - ./sites:/var/www
       - ./php/${php_version}/php.ini:/usr/local/etc/php/php.ini
@@ -95,6 +107,21 @@ services:
 networks:
   app-network:
     driver: bridge
+EOF
+
+# create Dockerfile.php file
+cat <<EOF > Dockerfile.php
+
+FROM serversideup/php:${php_version}
+
+# 切换到 root 用户安装扩展
+USER root
+
+# install mysqli extension
+RUN install-php-extensions mysqli
+
+# 切换回默认用户
+USER www-data
 EOF
 
 
@@ -131,7 +158,7 @@ docker run --rm --entrypoint=cat nginx:${nginx_version} /etc/nginx/nginx.conf > 
 
 # php init script
 mkdir -p ./php/${php_version}/
-docker run --rm --entrypoint=cat php:${php_version} /usr/local/etc/php/php.ini-production > ./php/${php_version}/php.ini
+docker run --rm --entrypoint=cat serversideup/php:${php_version} /usr/local/etc/php/conf.d/serversideup-docker-php.ini > ./php/${php_version}/php.ini
 
 # create sites init script
 mkdir ./sites/
@@ -243,3 +270,15 @@ for domain in "${domains[@]}"; do
         -keyout ~/.acme.sh/${domain}_ecc/$domain.key \
         -out ~/.acme.sh/${domain}_ecc/fullchain.cer
 done
+
+
+wget -qO- https://wordpress.org/latest.tar.gz | tar xzvf - --strip-components=1 -C ./sites/podcast.aripplesong.me
+wget -qO- https://wordpress.org/latest.tar.gz | tar xzvf - --strip-components=1 -C ./sites/cn.podcast.aripplesong.me
+
+# 修改 WordPress 目录的所有者为 1000:1000
+sudo chown -R 1000:1000 ./sites/podcast.aripplesong.me
+sudo chown -R 1000:1000 ./sites/cn.podcast.aripplesong.me
+
+# 确保目录权限正确
+sudo chmod -R 755 ./sites/podcast.aripplesong.me
+sudo chmod -R 755 ./sites/cn.podcast.aripplesong.me
