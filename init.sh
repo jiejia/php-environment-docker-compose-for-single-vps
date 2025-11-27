@@ -3,7 +3,7 @@
 nginx_version=1.28.0
 mysql_version=8.4.7
 php_version=8.5-fpm-alpine
-mysql_root_password=123456
+mysql_root_password=Hq7!maP4eS@9tY%kRb2$WzF8
 tz=Asia/Shanghai
 certbot_email=jiejia2009@gmail.com
 
@@ -35,7 +35,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${mysql_root_password}
       TZ: ${tz}
     volumes:
-      - ./mysql/my.cnf:/etc/my.cnf
+      # - ./mysql/my.cnf:/etc/my.cnf
       - ./mysql/data:/var/lib/mysql
       - ./mysql/conf:/etc/mysql/conf.d
       - ./mysql/logs:/var/log/mysql
@@ -95,6 +95,7 @@ services:
       PHP_FPM_PM_PROCESS_IDLE_TIMEOUT: "10s"
       PHP_UPLOAD_MAX_FILE_SIZE: "256M"
       PHP_POST_MAX_SIZE: "256M"
+      PHP_MAX_EXECUTION_TIME: "300"
     user: "1000:1000"  
     volumes:
       - ./sites:/var/www
@@ -133,16 +134,16 @@ mkdir ./mysql/logs
 
 cat <<EOF > ./mysql/init.sql
 CREATE DATABASE IF NOT EXISTS aripplesong;
-CREATE USER 'aripplesong'@'%' IDENTIFIED BY '123456';
-GRANT ALL PRIVILEGES ON aripplesong.* TO 'aripplesong'@'%';
+CREATE USER 'aripplesong'@'php-${php_version}' IDENTIFIED BY '123456';
+GRANT ALL PRIVILEGES ON aripplesong.* TO 'aripplesong'@'php-${php_version}';
 
 CREATE DATABASE IF NOT EXISTS podcast_aripplesong;
-CREATE USER 'podcast_aripplesong'@'%' IDENTIFIED BY '123456';
-GRANT ALL PRIVILEGES ON podcast_aripplesong.* TO 'podcast_aripplesong'@'%';
+CREATE USER 'podcast_aripplesong'@'php-${php_version}' IDENTIFIED BY '123456';
+GRANT ALL PRIVILEGES ON podcast_aripplesong.* TO 'podcast_aripplesong'@'php-${php_version}';
 
 CREATE DATABASE IF NOT EXISTS cn_podcast_aripplesong;
-CREATE USER 'cn_podcast_aripplesong'@'%' IDENTIFIED BY '123456';
-GRANT ALL PRIVILEGES ON cn_podcast_aripplesong.* TO 'cn_podcast_aripplesong'@'%';
+CREATE USER 'cn_podcast_aripplesong'@'php-${php_version}' IDENTIFIED BY '123456';
+GRANT ALL PRIVILEGES ON cn_podcast_aripplesong.* TO 'cn_podcast_aripplesong'@'php-${php_version}';
 
 FLUSH PRIVILEGES;
 EOF
@@ -276,8 +277,8 @@ wget -qO- https://wordpress.org/latest.tar.gz | tar xzvf - --strip-components=1 
 wget -qO- https://wordpress.org/latest.tar.gz | tar xzvf - --strip-components=1 -C ./sites/cn.podcast.aripplesong.me
 
 # 修改 WordPress 目录的所有者为 1000:1000
-sudo chown -R 1000:1000 ./sites/podcast.aripplesong.me
-sudo chown -R 1000:1000 ./sites/cn.podcast.aripplesong.me
+sudo chown -R $(id -u):$(id -g) ./sites/podcast.aripplesong.me
+sudo chown -R $(id -u):$(id -g) ./sites/cn.podcast.aripplesong.me
 
 # 确保目录权限正确
 sudo chmod -R 755 ./sites/podcast.aripplesong.me
